@@ -41,6 +41,8 @@ export function updateHud() {
   const w = WEAPONS[me.loadout.current];
   $('wname').textContent = w.name + (me.loadout.grenades ? ` · ${me.loadout.grenades} FRAG` : '');
   $('mag').textContent = me.loadout.reloadUntil > st.time ? '--' : me.loadout.mag[me.loadout.current];
+  // low ammo reads red so the player reloads before the mag runs dry
+  $('mag').style.color = me.loadout.mag[me.loadout.current] <= 6 ? 'var(--danger)' : '';
   $('reserve').textContent = '/ ' + me.loadout.reserve[me.loadout.current];
   $('objective').textContent =
     st.phase === 'roundEnd' || st.phase === 'matchEnd' ? (st.msg ? st.msg.h + ' — ' + st.msg.p : '') :

@@ -48,7 +48,11 @@ export function startRound() {
       shootCooldown: 0, strafeDir: 1, strafeUntil: 0, holdUntil: 0, plantProgress: 0, defuseProgress: 0,
     };
     if (id !== 0) {
-      const b = makeBot(id, name, team, spawn, ROUTES[site][team === 0 ? 'amber' : 'teal']);
+      // each bot takes a random lane variant so the team splits across
+      // lanes instead of single-filing one chain
+      const variants = ROUTES[site][team === 0 ? 'amber' : 'teal'];
+      const route = variants[Math.floor(rand() * variants.length)];
+      const b = makeBot(id, name, team, spawn, route);
       Object.assign(p, b, { loadout: p.loadout, pos: p.pos, yaw: p.yaw });
     }
     return p;
@@ -241,6 +245,7 @@ export function step(inp) {
       if (p.defuseProgress >= 5) { st.bomb.state = 'defused'; award(1, DEFUSE_POINTS); endRound(1, 'SPIKE DEFUSED'); }
     }
     if (think.wantFire) tryFire(p);
+    if (think.grenade && p.loadout.grenades > 0) { p.loadout.grenades -= 1; throwGrenade(p); }
     if (p.loadout.reloadUntil > 0 && st.time >= p.loadout.reloadUntil) { finishReload(p.loadout); p.loadout.reloadUntil = 0; }
     if (p.loadout.mag[p.loadout.current] === 0) startReload(p.loadout, st.time);
   }
@@ -279,6 +284,9 @@ export function step(inp) {
   // --- dropped spike pickup ---
   if (st.bomb.state === 'dropped') {
     for (const p of st.players) {
+      // re-check state: the first pickup sets pos to null, and a second
+      // player in the same step would crash reading it
+      if (st.bomb.state !== 'dropped') break;
       if (p.alive && p.team === 0 && Math.hypot(p.pos[0] - st.bomb.pos[0], p.pos[2] - st.bomb.pos[2]) < 1.5) {
         st.bomb = { state: 'carried', carrier: p.id, site: null, pos: null, timer: 0 };
         pushFeed(`${p.name} picked up the spike`, 'amber');

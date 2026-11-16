@@ -6,7 +6,7 @@
 // light poles, salt piles) is decoration only — it never changes a collider.
 import * as THREE from 'three';
 import { groundTexture, crateTexture, containerTexture, wallTexture,
-         siloTexture, laneTexture, skyTexture, hazardTexture } from './textures.js';
+         siloTexture, laneTexture, skyTexture, hazardTexture, siteLetterTexture } from './textures.js';
 
 export const COLLIDERS = [];
 function box(cx, cz, w, d, h, y0 = 0) {
@@ -20,33 +20,45 @@ box(0, -D - 0.5, MAP.w + 4, 1, 6); box(0, D + 0.5, MAP.w + 4, 1, 6);
 box(-W - 0.5, 0, 1, MAP.d + 4, 6); box(W + 0.5, 0, 1, MAP.d + 4, 6);
 
 // Site A (west, silos) cover + site B (east, warehouse) cover + mid.
+// NOTE: no cover box may sit on a waypoint or on the straight leg between
+// two waypoints of a route: a bot steering at a box it can never reach
+// grinds against the face forever (the old middle silo at [-27,0], the mid
+// crates at [+-4,0], the corner crates at [+-12,+-14] and the mid walls at
+// [+-18,0] did exactly that — 20/20 rounds timed out with 9/10 alive).
+// Site walls flank their site from the north/south so the approach legs
+// from the lanes run clear; the mid walls are split so the z=0 lane is open.
 export const PROPS = [
-  box(-24, -10, 6, 2, 3.2), box(-24, 10, 6, 2, 3.2),            // A-site walls
-  box(-18, 0, 2, 10, 2.6), box(-12, -14, 4, 4, 2.2), box(-12, 14, 4, 4, 2.2),
-  box(24, -10, 6, 2, 3.2), box(24, 10, 6, 2, 3.2),             // B-site walls
-  box(18, 0, 2, 10, 2.6), box(12, -14, 4, 4, 2.2), box(12, 14, 4, 4, 2.2),
+  box(-25, -13, 6, 2, 3.2), box(-25, 13, 6, 2, 3.2),            // A-site walls
+  box(-18, -8, 2, 6, 2.6), box(-18, 8, 2, 6, 2.6),
+  box(-12, -7, 4, 4, 2.2), box(-12, 7, 4, 4, 2.2),
+  box(29, -10, 6, 2, 3.2), box(29, 10, 6, 2, 3.2),             // B-site walls
+  box(18, -8, 2, 6, 2.6), box(18, 8, 2, 6, 2.6),
+  box(12, -7, 4, 4, 2.2), box(12, 7, 4, 4, 2.2),
   box(0, -8, 8, 2, 2.4), box(0, 8, 8, 2, 2.4),                 // mid double doors
-  box(-4, 0, 2, 2, 1.2), box(4, 0, 2, 2, 1.2),                 // mid crates
+  box(-4, -5, 2, 2, 1.2), box(4, 5, 2, 2, 1.2),                 // mid crates, off the lane
   box(-8, -18, 3, 3, 1.8), box(8, 18, 3, 3, 1.8), box(-8, 18, 3, 3, 1.8), box(8, -18, 3, 3, 1.8),
   box(0, -20, 10, 1, 4), box(0, 20, 10, 1, 4),                 // long walls top/bottom
+  box(29, 0, 8, 12, 6),                                          // warehouse (was visual-only)
 ];
-// Silos at site A (cylinders use a box collider in the sim).
-box(-27, -16, 5, 5, 7); box(-27, 16, 5, 5, 7); box(-27, 0, 5, 5, 7);
+// Silos at site A (cylinders use a box collider in the sim). Two silos
+// only: a third at [-27,0] sat on the z=0 lane out of the amber spawn and
+// trapped every attacker behind it.
+box(-27, -16, 5, 5, 7); box(-27, 16, 5, 5, 7);
 
 export const SITES = {
   A: { pos: [-25, 0, 0], r: 5, name: 'SITE A — SILOS' },
-  B: { pos: [25, 0, 0], r: 5, name: 'SITE B — WAREHOUSE' },
+  B: { pos: [23, 0, 0], r: 5, name: 'SITE B — WAREHOUSE' },
 };
 export const SPAWNS = {
-  amber: [[-29, -6], [-29, 0], [-29, 6], [-27, -12], [-27, 12]],
-  teal: [[29, -6], [29, 0], [29, 6], [27, -12], [27, 12]],
+  amber: [[-29, -6], [-29, 0], [-29, 6], [-27, -10], [-27, 10]],
+  teal: [[29, -13], [29, 13], [24, -6], [24, 6], [24, 0]],
 };
 // Waypoint graph: the nodes bots walk. Edges join neighbours by index.
 export const WAYPOINTS = [
-  [-29, 0], [-20, 0], [-12, 0], [-4, 0], [4, 0], [12, 0], [20, 0], [29, 0],       // 0-7 mid
+  [-29, 0], [-20, 0], [-12, 0], [-4, 0], [4, 0], [12, 0], [20, 0], [24, 0],       // 0-7 mid
   [-20, -14], [-12, -14], [-4, -14], [4, -14], [12, -14], [20, -14],               // 8-13 top lane
   [-20, 14], [-12, 14], [-4, 14], [4, 14], [12, 14], [20, 14],                     // 14-19 bottom lane
-  [-25, -8], [-25, 8], [25, -8], [25, 8], [-25, 0], [25, 0],                       // 20-25 sites
+  [-25, -8], [-25, 8], [25, -8], [25, 8], [-25, 0], [23, 0],                       // 20-25 sites
 ];
 export const EDGES = [
   [0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 7],
@@ -55,9 +67,18 @@ export const EDGES = [
   [8, 20], [14, 21], [20, 24], [21, 24], [13, 22], [19, 23], [22, 25], [23, 25],
   [2, 9], [2, 15], [5, 11], [5, 17], [3, 10], [3, 16], [4, 11], [4, 17],
 ];
-export const ROUTES = { // site -> waypoint chains from each spawn side
-  A: { amber: [0, 1, 8, 20, 24], teal: [7, 6, 13, 22, 24] },
-  B: { amber: [0, 1, 14, 21, 25], teal: [7, 6, 19, 23, 25] },
+// Routes: site -> side -> lane variants. Every leg of every variant runs
+// clear of every collider (verified by hand against PROPS); each bot takes
+// a random variant so a team splits across lanes instead of single-filing.
+export const ROUTES = {
+  A: {
+    amber: [[0, 1, 8, 20, 24], [0, 1, 20, 24]],
+    teal: [[7, 6, 5, 4, 3, 2, 1, 24], [7, 6, 13, 12, 11, 10, 9, 8, 20, 24], [7, 6, 19, 18, 17, 16, 15, 14, 21, 24]],
+  },
+  B: {
+    amber: [[0, 1, 2, 3, 4, 5, 6, 25], [0, 1, 8, 9, 10, 11, 12, 13, 6, 25], [0, 1, 14, 15, 16, 17, 18, 19, 6, 25]],
+    teal: [[7, 6, 19, 23, 25], [7, 6, 23, 25]],
+  },
 };
 
 // --- collision helpers (sim only; no allocations in hot loops) ---
@@ -147,7 +168,8 @@ export function buildMapScene(scene) {
     m.position.set(x, 3, z); m.castShadow = true; m.receiveShadow = true; scene.add(m);
   }
   // silos at site A, with domed caps and a catwalk pipe between them
-  for (const [x, z] of [[-27, -16], [-27, 16], [-27, 0]]) {
+  // (two silos only — the middle one blocked the z=0 lane; see PROPS note)
+  for (const [x, z] of [[-27, -16], [-27, 16]]) {
     const s = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 2.4, 7, 18), mats.silo);
     s.position.set(x, 3.5, z); s.castShadow = true; s.receiveShadow = true; scene.add(s);
     const cap = new THREE.Mesh(new THREE.SphereGeometry(2.4, 18, 8, 0, Math.PI * 2, 0, Math.PI / 2), mats.silo);
@@ -208,6 +230,19 @@ export function buildMapScene(scene) {
     const ring = new THREE.Mesh(new THREE.RingGeometry(s.r - 0.4, s.r, 48),
       new THREE.MeshBasicMaterial({ color: key === 'A' ? 0xf5a623 : 0x2dd4bf, side: THREE.DoubleSide, transparent: true, opacity: 0.75 }));
     ring.rotation.x = -Math.PI / 2; ring.position.set(s.pos[0], 0.05, s.pos[2]); scene.add(ring);
+  }
+  // site signs: a big letter on a pole at each site's edge, readable from
+  // any approach — two back-to-back panels so the letter never mirrors
+  for (const [key, x, z] of [['A', -25, -5.5], ['B', 23, 5.5]]) {
+    const col = key === 'A' ? '#f5a623' : '#2dd4bf';
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 3.4, 8), mats.pipe);
+    pole.position.set(x, 1.7, z); pole.castShadow = true; scene.add(pole);
+    const tex = siteLetterTexture(key, col);
+    for (const ry of [0, Math.PI]) {
+      const panel = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 2.4),
+        new THREE.MeshStandardMaterial({ map: tex, roughness: 0.7 }));
+      panel.position.set(x, 3.4, z); panel.rotation.y = ry; panel.castShadow = true; scene.add(panel);
+    }
   }
   // sky: gradient dome painted by the texture module + low sun disc
   const sky = new THREE.Mesh(new THREE.SphereGeometry(220, 32, 16),

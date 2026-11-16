@@ -202,3 +202,18 @@ export function hazardTexture() {
   }
   return finish(c);
 }
+
+// Big site letter on a dark plate: A (amber) / B (teal), readable at range.
+export function siteLetterTexture(letter, color) {
+  const [c, cx] = canvas(256, 256);
+  cx.fillStyle = '#17121f'; cx.fillRect(0, 0, 256, 256);
+  cx.strokeStyle = color; cx.lineWidth = 10; cx.strokeRect(10, 10, 236, 236);
+  cx.fillStyle = color;
+  cx.font = 'bold 170px monospace'; cx.textAlign = 'center'; cx.textBaseline = 'middle';
+  cx.fillText(letter, 128, 138);
+  cx.font = 'bold 22px monospace';
+  cx.fillText(letter === 'A' ? 'SILOS' : 'WAREHOUSE', 128, 222);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}

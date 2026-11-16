@@ -18,14 +18,26 @@ export function makeBot(id, name, team, spawn, route) {
     loadout: null, // filled in by the sim (shared makeLoadout)
     route: route.slice(), routeIdx: 0,
     state: 'route', target: null, targetPos: null, hearPos: null, hearUntil: 0,
-    shootCooldown: 0, strafeDir: 1, strafeUntil: 0, holdUntil: 0,
+    shootCooldown: 0, strafeDir: 1, strafeUntil: 0, holdUntil: 0, holdYaw: 0,
     plantProgress: 0, defuseProgress: 0, kills: 0, deaths: 0,
+    // unstick / burst-fire state
+    progDist: Infinity, progAt: 0, sidestepUntil: 0, sidestepDir: 1,
+    burstLeft: 0, burstUntil: 0, reactUntil: 0,
   };
 }
 
-// Nearest visible enemy, or null. Vision: 55 m, 100-degree cone, clear LOS.
+// Face the map centre (the likely approach) while holding a site.
+function setHold(bot, now, dur, rand) {
+  bot.state = 'hold';
+  bot.holdUntil = now + dur;
+  bot.holdYaw = Math.atan2(bot.pos[0], bot.pos[2]);
+}
+
+// Nearest visible enemy, or null. Vision: 35 m, 100-degree cone, clear LOS.
+// 35 m (not 55) so bots close to a fighting distance instead of opening
+// fire across the whole map — rounds were ending in ~8 s of potshots.
 export function visibleEnemy(bot, players) {
-  let best = null, bestD = 55;
+  let best = null, bestD = 35;
   for (const p of players) {
     if (!p.alive || p.team === bot.team) continue;
     const dx = p.pos[0] - bot.pos[0], dz = p.pos[2] - bot.pos[2];
@@ -67,7 +79,7 @@ export function botThink(bot, st, now, rand) {
       return out;
     }
     // attackers hold the site: pick a hold spot near it
-    if (bot.state !== 'hold') { bot.state = 'hold'; bot.holdUntil = now + 6 + rand() * 4; }
+    if (bot.state !== 'hold') setHold(bot, now, 6 + rand() * 4, rand);
   } else if (st.bomb.carrier === bot.id && st.bomb.state === 'carried') {
     const site = SITES[bot.site || 'A'];
     const d = Math.hypot(site.pos[0] - bot.pos[0], site.pos[2] - bot.pos[2]);
@@ -75,6 +87,9 @@ export function botThink(bot, st, now, rand) {
   }
   // --- combat ---
   if (enemy) {
+    // first sight of a new target costs a reaction delay — bots are not
+    // aimbots, and a human player should win a fair peek
+    if (bot.target !== enemy) bot.reactUntil = now + 0.25 + rand() * 0.3;
     bot.target = enemy;
     bot.state = 'engage';
     const dx = enemy.pos[0] - bot.pos[0], dz = enemy.pos[2] - bot.pos[2];
@@ -90,8 +105,21 @@ export function botThink(bot, st, now, rand) {
     const fwd = d > 18 ? 0.7 : d < 5 ? -0.5 : 0;
     const sx = -dz / (d || 1) * bot.strafeDir, sz = dx / (d || 1) * bot.strafeDir;
     out.move = [fwd * -Math.sin(bot.yaw) + sx * 0.7, fwd * -Math.cos(bot.yaw) + sz * 0.7];
-    // bots are worse shots than a good player: reaction delay + slow fire
-    if (now > bot.shootCooldown) { out.wantFire = true; bot.shootCooldown = now + 0.28 + rand() * 0.35; }
+    // burst fire: 3-5 shots, then a pause — reads human, not a laser
+    if (now > bot.shootCooldown && now >= bot.reactUntil) {
+      if (bot.burstLeft <= 0) {
+        if (now < bot.burstUntil) { /* between bursts: hold fire */ }
+        else bot.burstLeft = 3 + Math.floor(rand() * 3);
+      }
+      if (bot.burstLeft > 0) {
+        out.wantFire = true;
+        bot.burstLeft -= 1;
+        bot.shootCooldown = now + 0.28 + rand() * 0.35;
+        if (bot.burstLeft === 0) bot.burstUntil = now + 0.5 + rand() * 0.4;
+      }
+    }
+    // lob a frag at a distant enemy before pushing in
+    if (d > 15 && bot.loadout && bot.loadout.grenades > 0 && rand() < 0.02) out.grenade = true;
     return out;
   }
   // --- investigate a heard shot ---
@@ -103,16 +131,39 @@ export function botThink(bot, st, now, rand) {
   // --- hold (defenders on a site, attackers after planting) ---
   if (bot.state === 'hold') {
     if (now > bot.holdUntil) bot.state = 'route';
-    else { bot.yaw += Math.sin(now * 0.4 + bot.id) * 0.002; return out; }
+    else {
+      // ease toward the approach direction with a slow scan
+      let diff = bot.holdYaw - bot.yaw;
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      bot.yaw += Math.max(-0.02, Math.min(0.02, diff)) + Math.sin(now * 0.4 + bot.id) * 0.001;
+      return out;
+    }
   }
   // --- route: walk the waypoint chain ---
   const wp = WAYPOINTS[bot.route[bot.routeIdx] ?? 0];
-  if (!wp) { bot.state = 'hold'; bot.holdUntil = now + 5; return out; }
+  if (!wp) { setHold(bot, now, 5, rand); return out; }
   const d = Math.hypot(wp[0] - bot.pos[0], wp[1] - bot.pos[2]);
   if (d < 1.2) {
     bot.routeIdx += 1;
-    if (bot.routeIdx >= bot.route.length) { bot.state = 'hold'; bot.holdUntil = now + 5 + rand() * 3; }
+    bot.progDist = Infinity;
+    if (bot.routeIdx >= bot.route.length) setHold(bot, now, 5 + rand() * 3, rand);
     return out;
+  }
+  // unstick: if we have not closed on the waypoint in 2 s, sidestep
+  // perpendicular for 0.8 s (covers any collider a route leg still clips)
+  if (d < bot.progDist - 0.5) { bot.progDist = d; bot.progAt = now; }
+  if (now - bot.progAt > 2) {
+    if (now > bot.sidestepUntil) {
+      bot.sidestepDir = -bot.sidestepDir;
+      bot.sidestepUntil = now + 0.8;
+      bot.progAt = now;
+    }
+    if (now < bot.sidestepUntil) {
+      const fwd = stepToward(bot, wp, rand);
+      out.move = [-fwd[1] * bot.sidestepDir, fwd[0] * bot.sidestepDir];
+      return out;
+    }
   }
   out.move = stepToward(bot, wp, rand);
   return out;

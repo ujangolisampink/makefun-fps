@@ -73,7 +73,7 @@ function stageShot(kind) {
     // mid-round firefight on mid lane: three defenders in the open at
     // staggered depth, two allies pushing beside the player, tracer live
     state.phase = 'play'; state.roundTimer = 73;
-    me.pos = [-12, 0, -5]; lookAt(me, 12, 0);
+    me.pos = [-12, 0, -1]; lookAt(me, 12, 0);
     const e1 = state.players[6]; e1.pos = [4, 0, -3]; e1.yaw = Math.PI;
     const e2 = state.players[7]; e2.pos = [9, 0, 2]; e2.yaw = Math.PI;
     const e3 = state.players[8]; e3.pos = [14, 0, -5]; e3.yaw = Math.PI;
@@ -82,22 +82,26 @@ function stageShot(kind) {
     state.lastShot = { shooter: me, point: [4, 1.4, -3], at: 999 };
     state.lastHit = { shooter: me, victim: e1, head: false, at: 998 };
   } else if (kind === 'plant') {
-    // spike planted at Site A; view from the north side so the A-site wall
-    // is not in the way, defenders pushing in from mid
+    // spike planted at Site A; view from the north-west so the spike, the
+    // A sign and the defenders pushing in from mid are all in frame
     state.phase = 'play'; state.roundTimer = 41;
     state.bomb = { state: 'planted', carrier: null, site: 'A', pos: [-25, 0, 0], timer: 32 };
-    me.pos = [-21, 0, -10]; lookAt(me, -10, -4);
-    const e1 = state.players[6]; e1.pos = [-12, 0, -8]; e1.yaw = Math.PI * 0.8;
-    const e2 = state.players[7]; e2.pos = [-8, 0, -2]; e2.yaw = Math.PI;
+    state.feed = [{ text: 'SPIKE PLANTED AT SITE A — 40s', cls: 'amber' },
+      { text: 'ROUND 1 — SITE A — SILOS IS THE CALL', cls: '' }];
+    // camera south-east of the site looking north-west: spike, A sign and
+    // the defenders pushing in are all in frame, no spawn bot in the lens
+    me.pos = [-23, 0, -9]; lookAt(me, -24, -1);
+    const e1 = state.players[6]; e1.pos = [-20, 0, -5]; e1.yaw = Math.PI * 0.8;
+    const e2 = state.players[7]; e2.pos = [-19, 0, -2]; e2.yaw = Math.PI;
     const a1 = state.players[1]; a1.pos = [-18, 0, -12];
   } else if (kind === 'end') {
-    // round won at Site A: approach from the south side, silos and the
+    // round won at Site A: straight down the mid lane, silos and the
     // glowing ring in frame, an ally walking ahead
     state.phase = 'roundEnd'; state.roundTimer = 4;
     state.points = [1000, 0]; state.roundsWon = [1, 0];
     state.msg = { h: 'AMBER TAKES THE ROUND', p: 'SPIKE DETONATED — SITE A', until: 999 };
-    me.pos = [-14, 0, 12]; lookAt(me, -26, 2);
-    const a1 = state.players[1]; a1.pos = [-20, 0, 10];
+    me.pos = [-10, 0, 0]; lookAt(me, -25, 0);
+    const a1 = state.players[1]; a1.pos = [-20, 0, 3];
   }
   overlay.hidden = kind !== 'start';
   window.__saltlineReady = true;

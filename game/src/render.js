@@ -7,6 +7,8 @@ import { buildMapScene } from './map.js';
 
 let renderer, scene, camera, gunMesh, muzzle, muzzleFlash, tracers = [], particles = [];
 let botMeshes = new Map();
+let spikeMesh, spikeLamp;
+let dustMotes = [];
 let clock = 0;
 const _v = new THREE.Vector3();
 
@@ -39,9 +41,11 @@ export function initRender(container) {
   sun.shadow.camera.left = -45; sun.shadow.camera.right = 45;
   sun.shadow.camera.top = 45; sun.shadow.camera.bottom = -45;
   scene.add(sun);
-  scene.add(new THREE.HemisphereLight(0x8a7fd6, 0x3a2c1e, 0.9));
+  scene.add(new THREE.HemisphereLight(0x8a7fd6, 0x3a2c1e, 1.1));
   const siteA = new THREE.PointLight(0xf5a623, 26, 26, 1.6); siteA.position.set(-25, 4.5, 0); scene.add(siteA);
-  const siteB = new THREE.PointLight(0x2dd4bf, 26, 26, 1.6); siteB.position.set(25, 4.5, 0); scene.add(siteB);
+  const siteB = new THREE.PointLight(0x2dd4bf, 26, 26, 1.6); siteB.position.set(23, 4.5, 0); scene.add(siteB);
+  // warm mid-map fill so the centre of the yard doesn't read black at dusk
+  const mid = new THREE.PointLight(0xffc266, 10, 30, 1.8); mid.position.set(0, 5, 0); scene.add(mid);
   for (const [x, z] of [[-8, -18], [8, 18]]) {
     const lamp = new THREE.PointLight(0xffc266, 9, 15, 1.8);
     lamp.position.set(x, 4.6, z); scene.add(lamp);
@@ -62,8 +66,8 @@ export function initRender(container) {
   stock.position.set(0, -0.01, 0.36); gunMesh.add(stock);
   const grip = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.12, 0.06), accent);
   grip.position.set(0, -0.11, 0.14); grip.rotation.x = 0.4; gunMesh.add(grip);
-  gunMesh.scale.setScalar(0.7);
-  gunMesh.position.set(0.3, -0.26, -0.55);
+  gunMesh.scale.setScalar(0.55);
+  gunMesh.position.set(0.24, -0.22, -0.5);
   muzzle = new THREE.PointLight(0xffc266, 0, 9); muzzle.position.set(0, 0, -0.6); gunMesh.add(muzzle);
   muzzleFlash = new THREE.Sprite(new THREE.SpriteMaterial({ map: flashTexture(), transparent: true, opacity: 0, depthWrite: false }));
   muzzleFlash.scale.set(0.5, 0.5, 1); muzzleFlash.position.set(0, 0.02, -0.62); gunMesh.add(muzzleFlash);
@@ -86,6 +90,37 @@ export function initRender(container) {
     const m = new THREE.Mesh(new THREE.SphereGeometry(0.05, 6, 6),
       new THREE.MeshBasicMaterial({ color: 0xffc266, transparent: true, opacity: 0 }));
     m.visible = false; scene.add(m); particles.push({ mesh: m, vel: [0, 0, 0], until: 0 });
+  }
+  // spike device: dark case, antenna, blinking red lamp — shown when the
+  // spike is planted or dropped, so the objective is visible in 3D
+  spikeMesh = new THREE.Group();
+  const spikeBody = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.22, 0.4),
+    new THREE.MeshStandardMaterial({ color: 0x1a1420, roughness: 0.5, metalness: 0.4 }));
+  spikeBody.position.y = 0.11; spikeBody.castShadow = true; spikeMesh.add(spikeBody);
+  const spikeAntenna = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.5, 6),
+    new THREE.MeshStandardMaterial({ color: 0x6b6f75, roughness: 0.4, metalness: 0.7 }));
+  spikeAntenna.position.set(0.18, 0.42, 0); spikeMesh.add(spikeAntenna);
+  spikeLamp = new THREE.Mesh(new THREE.SphereGeometry(0.06, 10, 8),
+    new THREE.MeshBasicMaterial({ color: 0xff2a1a }));
+  spikeLamp.position.set(-0.15, 0.26, 0); spikeMesh.add(spikeLamp);
+  const spikeLight = new THREE.PointLight(0xff2a1a, 0, 6); spikeLight.position.set(0, 0.4, 0); spikeMesh.add(spikeLight);
+  // light pillar so a planted spike reads from across the map
+  const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 2.6, 8),
+    new THREE.MeshBasicMaterial({ color: 0xff2a1a, transparent: true, opacity: 0.3, blending: THREE.AdditiveBlending, depthWrite: false }));
+  beam.position.set(0, 1.5, 0); spikeMesh.add(beam);
+  spikeMesh.userData.beam = beam;
+  spikeMesh.userData.light = spikeLight;
+  spikeMesh.visible = false;
+  scene.add(spikeMesh);
+  // dust motes: slow-drifting warm specks in the dusk air, pooled sprites
+  for (let i = 0; i < 40; i++) {
+    const m = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: flashTexture(), color: 0xffd9a0, transparent: true, opacity: 0.12, depthWrite: false }));
+    m.scale.set(0.14, 0.14, 1);
+    m.position.set((Math.random() - 0.5) * 60, 0.5 + Math.random() * 7, (Math.random() - 0.5) * 40);
+    m.userData = { drift: 0.1 + Math.random() * 0.25, phase: Math.random() * 6.28 };
+    scene.add(m);
+    dustMotes.push(m);
   }
   addEventListener('resize', () => {
     camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
@@ -214,10 +249,15 @@ export function render(dt, now) {
   camera.rotation.x = me.pitch + (me.loadout ? me.loadout.recoilPitch : 0);
   const targetFov = me.ads ? 78 / (me.loadout ? 1.6 : 1) : 78;
   if (Math.abs(camera.fov - targetFov) > 0.1) { camera.fov += (targetFov - camera.fov) * 0.25; camera.updateProjectionMatrix(); }
-  // gun bob + ADS position
+  // gun bob + ADS position + reload dip + recoil kick
   const bob = me.moving ? Math.sin(now * 9) * 0.012 : 0;
-  gunMesh.position.x += ((me.ads ? 0 : 0.28) - gunMesh.position.x) * 0.3;
-  gunMesh.position.y = -0.24 + bob;
+  gunMesh.position.x += ((me.ads ? 0 : 0.24) - gunMesh.position.x) * 0.3;
+  const reloading = me.loadout && me.loadout.reloadUntil > now;
+  gunMesh.rotation.x += ((reloading ? 0.55 : 0) - gunMesh.rotation.x) * 0.3;
+  const ls = state.lastShot;
+  const kick = (ls && ls.shooter === me && now - ls.at < 0.09) ? 0.05 : 0;
+  gunMesh.position.y = -0.22 + bob - (reloading ? 0.06 : 0);
+  gunMesh.position.z = -0.5 + kick;
   gunMesh.visible = me.alive;
   muzzle.intensity = Math.max(0, muzzle.intensity - dt * 60);
   muzzleFlash.material.opacity = Math.max(0, muzzleFlash.material.opacity - dt * 9);
@@ -243,9 +283,22 @@ export function render(dt, now) {
     else m.userData.flash.material.opacity = Math.max(0, m.userData.flash.material.opacity - dt * 9);
   }
   for (const [id, m] of botMeshes) if (!seen.has(id)) m.visible = false;
-  // spike: a small device with a blinking red lamp while planted
-  if (state.bomb.state === 'planted' && state.bomb.pos) {
-    // blink handled by the site ring pulse below via fog-free overlay in hud
+  // spike: a small device with a blinking red lamp while planted or dropped
+  const bomb = state.bomb;
+  if ((bomb.state === 'planted' || bomb.state === 'dropped') && bomb.pos) {
+    spikeMesh.visible = true;
+    spikeMesh.position.set(bomb.pos[0], 0, bomb.pos[2]);
+    const blink = (Math.sin(now * 6) > 0) ? 1 : 0.15;
+    spikeLamp.material.color.setRGB(1 * blink, 0.16 * blink, 0.1 * blink);
+    spikeMesh.userData.light.intensity = bomb.state === 'planted' ? 3 * blink : 1.5 * blink;
+    spikeMesh.userData.beam.material.opacity = bomb.state === 'planted' ? 0.3 * blink : 0.12;
+  } else spikeMesh.visible = false;
+  // dust motes drift slowly and wrap around the yard
+  for (const m of dustMotes) {
+    m.position.x += Math.sin(now * 0.2 + m.userData.phase) * m.userData.drift * dt;
+    m.position.y += Math.cos(now * 0.13 + m.userData.phase) * m.userData.drift * 0.4 * dt;
+    if (m.position.x > 32) m.position.x = -32;
+    if (m.position.x < -32) m.position.x = 32;
   }
   // tracers and particles fade
   for (const t of tracers) {
